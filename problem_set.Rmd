@@ -1,0 +1,154 @@
+---
+title: "Problem Set for Intro to Linear Models and OLS"
+author: "[Put your name here]"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+# Setting up some options for the session.
+# Don't customize unless you know what you're doing....
+knitr::opts_chunk$set(echo = TRUE,
+                      warning = FALSE,
+                      message = FALSE)
+options(digits = 3)
+
+library(tidyverse) # packages you'll need
+library(estimatr)  
+library(texreg)
+
+# --------------------------
+# LOAD AND MERGE THE DATA 
+# --------------------------
+
+# Penn data
+pwt <- pwt9::pwt9.1 %>%
+  filter(year %in% 2017) %>%
+  select(country, year, pop, rgdpna, hc) %>%
+  mutate(code = countrycode::countrycode(country, "country.name", "iso3c"))
+
+# Polity data
+pty <- democracyData::polityIV %>%
+  filter(year %in% 2017) %>%
+  select(polityIV_country, year, polity2) %>%
+  rename(country = polityIV_country) %>%
+  mutate(code = countrycode::countrycode(country, "country.name", "iso3c"))
+
+# Merge
+ds <- inner_join(
+  pwt, pty,
+  by = c("year", "code")
+) %>%
+  select(-country.y) %>%
+  rename(country = country.x,
+         population = pop,
+         gdp = rgdpna,
+         human_capital = hc,
+         polity = polity2) %>%
+  select(code, everything()) %>%
+  na.omit %>%
+  mutate(population = log(population),
+         gdp = log(gdp))
+```
+
+
+## Instructions
+
+This problem set consists of a few exercises to help familiarize you with linear regression and how to perform regression analysis with R. When you've finished, knit the document and email your responses to me at `milesdw2@illinois.edu`. 
+
+This problem set consists of two sections. For the first, you'll answer some open-ended questions about linear regression. These will test your knowledge on some of the basics of linear models and OLS. No math will be required for this section; it will only be a test of your conceptual understanding.
+
+The second section will focus on an applied application of linear regression in R. The goal of this exercise is to introduce some of the basics of doing regression analysis and provide you with some example code to play with and use to analyze an example dataset.
+
+
+## Concepts
+
+***Question 1.*** You have a friend who tells you about an "OLS model" they want to estimate for a research paper. What would you say to ***politely*** correct your friend's misunderstanding of the difference between "OLS" and "models"?
+
+[Delete this text and write your answer here.]
+
+
+***Question 2.*** What are **two** conditions for OLS estimates to be consistent and unbaised? Can we "prove" whether these conditions hold? Explain.
+
+[Delete this text and write your answer here.]
+
+
+***Question 3.*** Suppose we have some data on voter turnout and we want to estimate the relationship between income and whether someone voted in an election. To ensure we don't get a biased estimate of this relationship, we need to "control for" an individual's education level in our analysis. What does it mean to "control for" a variable in our analysis? And how should we interpret our estimate of the relationship between income and turnout when we control for education?
+
+[Delete this text and write your answer here.]
+
+
+## Regression analysis in R
+
+The code chunk at the beginning of this document (not visible in the rendered pdf of this document), sets up a dataset called `ds`. Here's what it looks like:
+
+```{r}
+head(ds, 5) # shows first 5 rows
+```
+
+For 136 countries, this dataset has the population and GDP of each (log-transformed), their measure of human capital (the Human Capital Index) and their polity 2 score. 
+
+Suppose we want to estimate the following model of a country's GDP:
+$$\text{GDP}_i = \beta_0 + \beta_1 \text{population}_i + \beta_2 \text{human capital}_i + \beta_3 \text{polity}_i + \beta_4 \text{polity}_i^2 + \epsilon_i.$$
+With our dataset, we can easily do this in R by writting:
+
+```{r}
+ols_fit <- lm(gdp ~ population + human_capital + polity + I(polity^2),
+              data = ds)
+```
+
+
+The above code estimates the model via OLS. We can get a summary of statistical inferences for this model using the `summary()` function on our fitted model object:
+
+```{r}
+summary(ols_fit)
+```
+
+This gives us the standard errors for our esimates, $t$-values, and $p$-values. It also provides some goodness of fit (GOF) metrics. 
+
+A problem with the above summary, however, is that it returns classic OLS standard errors. As we discussed in the lecture, these are not robust to *iid* violations. 
+
+Thankfully, we can use another version of the `lm` function from the `estimatr` package that will let us easily estimate a model with robust standard errors:
+
+```{r}
+robust_fit <- lm_robust(
+  gdp ~ population + human_capital + polity + I(polity^2),
+  data = ds,
+  se_type = "HC1" # This tells the function to return HC1 errors
+)
+```
+
+
+We can now get an updated summary of the model:
+
+```{r}
+summary(robust_fit)
+```
+
+If we want a tydier way to summarize our models, we can use `screenreg` from the `texreg` package:
+
+```{r}
+screenreg(
+  robust_fit,
+  include.ci = FALSE
+)
+```
+
+We can also produce side-by-side summaries of models with `screenreg`:
+
+```{r}
+screenreg(
+  list("Classic Fit" = ols_fit, 
+       "Robust S.E.s" = robust_fit),
+  include.ci = FALSE
+)
+```
+
+**Instructions**: While polity might be predictive of GDP, it's also possible that GDP determines how democratic (or autocratic) a country is. Estimate a model, or set of models, of democracy using variables in `ds`. Report your results and interpret the coefficients from your model(s). If you estimate more than one model, use your goodness of fit statistics to make an informed choice about which of your models is best. You can use and modify the code above to do your analysis.
+
+```{r}
+# Here's a code chunk you can use. 
+# To produce more code chunks, just type 
+#   For windows: "ctrl + alt + I"
+#   For mac: "Cmd + Option + I"
+```
+

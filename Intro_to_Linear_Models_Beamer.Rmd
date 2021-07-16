@@ -1,0 +1,1163 @@
+---
+title: "Intro to Linear Models and OLS"
+subtitle: "UIUC Department of Political Science Math Camp 2021"
+author: | 
+    | Miles D. Williams 
+    |
+    | milesdw2@illinois.edu
+output: 
+  beamer_presentation:
+    incremental: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE,
+                      message = FALSE,
+                      warning = FALSE,
+                      fig.height = 3,
+                      fig.width = 4,
+                      fig.pos = "!t")
+library(tidyverse)
+library(estimatr)
+library(texreg)
+library(kableExtra)
+
+
+# --------------------------
+# LOAD AND MERGE THE DATA 
+# --------------------------
+
+# Penn data
+pwt <- pwt9::pwt9.1 %>%
+  filter(year %in% 2017) %>%
+  select(country, year, pop, rgdpna, hc) %>%
+  mutate(code = countrycode::countrycode(country, "country.name", "iso3c"))
+
+# Polity data
+pty <- democracyData::polityIV %>%
+  filter(year %in% 2017) %>%
+  select(polityIV_country, year, polity2) %>%
+  rename(country = polityIV_country) %>%
+  mutate(code = countrycode::countrycode(country, "country.name", "iso3c"))
+
+# Merge
+ds <- inner_join(
+  pwt, pty,
+  by = c("year", "code")
+) %>%
+  select(-country.y) %>%
+  rename(country = country.x) %>%
+  select(code, everything()) %>%
+  na.omit
+
+# Make wealth variable:
+ds <- ds %>%
+  mutate(
+    wealth = log(rgdpna / pop)
+  )
+```
+
+## Where we're going...
+
+## Where we're going...
+
+  1. What are linear models?
+  2. How do we estimate them? 
+  3. How do we make inferences with them?
+  4. How do we extend them?
+  5. How do we know our models are good?
+  
+## Some points of order
+
+It's time for some ***real talk***...
+
+## Some points of order
+
+  - **Models** are not **estimators**!
+    - *Estimators are a rule for solving the parameters of a model.*
+  - Be careful when using terms like "dependent" and "independent" variable.
+    - Sometimes it's better to say *response* or *outcome*
+    - Or *predictor* or *explanatory variable*
+
+## What is a linear model?
+
+$$y_i = \beta_0 + \beta_1x_{i1} + \cdots + \beta_k x_{ik} + \epsilon_i$$
+
+## What is a linear model?
+
+$$y_i = \beta_0 + \beta_1x_{i1} + \cdots + \beta_k x_{ik} + \epsilon_i$$
+
+  - It's a **statistical model** of the relationship between a set of ***explanatory variables*** and an ***outcome***.
+  - It models this relationship as an ***additive linear equation***.
+  
+## An example using real-world data
+
+QUESTION: What is the relationship between democracy and wealth?
+
+
+## An example using real-world data
+
+We have some data on democracy and wealth:
+
+```{r}
+# Make figure 1:
+p <- ggplot(ds) +
+  aes(polity2, wealth) +
+  geom_point() +
+  labs(
+    x = "Democracy\n(Polity 2)",
+    y = "Wealth\n(natural log of per capita GDP)"
+  ) +
+  theme_classic()
+p # plot
+```
+
+## An example using real-world data
+
+Do we model it like this?
+
+```{r}
+p + geom_smooth(se = F)
+```
+
+## An example using real-world data
+
+Or like this?
+
+```{r}
+p + geom_smooth(se = F) +
+  geom_smooth(se = F, method = "lm", color = "red")
+```
+
+## An example using real-world data
+
+Or like this?!?!
+
+```{r}
+p + geom_smooth(se = F) +
+  geom_smooth(se = F, method = "lm", color = "red") +
+  geom_smooth(se = F, method = "lm", color = "green",
+              formula = y ~ x + I(x^2))
+```
+
+
+## An example using real-world data
+
+$$\text{wealth}_i = \beta_0 + \beta_1 \text{democracy}_i + \epsilon_i$$
+
+  - We can model the relationship as a linear equation.
+  - $\beta_0$ is average wealth when polity 2 is zero.
+  - $\beta_1$ is the rate of change in wealth as polity 2 increase.
+  - $\epsilon_i$ is unexplained variation in wealth.
+
+## An example using real-world data
+
+  - We observe wealth and democracy...
+  - ...but not $\beta_0$, $\beta_1$, and $\epsilon_i$.
+  - We need a way to select values of each.
+  
+## An example using real-world data
+
+***My best guess*** (MBG): $\beta_0 = 8.5$ and $\beta_1 = 0.15$
+
+```{r}
+# Make figure 2
+p <- p + 
+  geom_abline(
+    slope = 0.15,
+    intercept = 8.5,
+    lty = 2,
+    col = "red",
+    size = 1
+  )
+p # plot
+```
+
+ 
+## An example using real-world data
+
+  - My best guess seem to do okay...
+  - ...but it's not very scientific.
+  - The values I chose for $\beta_0$ and $\beta_1$ look good to me.
+  - But ***you*** may have chosen differently.
+  - This solution is really subjective.
+  
+## Enter ordinary least squares
+
+  - We most often use an estimator called "ordinary least squares" (OLS)
+  - OLS is a ***rule*** or ***criterion*** for selecting values of the unknown parameters.
+  - What is this rule?
+  
+## Enter ordinary least squares
+
+OLS finds the $\beta$s that minimize the ***sum of the squared residuals*** (SSR):
+
+$$\text{SSR} = \sum_i \hat{\epsilon}_i^2$$
+
+## Enter ordinary least squares
+
+The residuals are just the observed difference between our ***prediction*** for the response and the ***observed*** value of the response.
+
+
+## Enter ordinary least squares
+
+$\hat{\epsilon}_i = \text{wealth}_i - \widehat{\text{wealth}}_i$
+
+$\widehat{\text{wealth}}_i = \hat{\beta}_0 + \hat{\beta}_1 \text{democracy}_i$
+
+$\hat{\beta}_0 =$ the selected value for the intercept.
+
+$\hat{\beta}_1 =$ the selected value for the slope.
+
+## Enter ordinary least squares
+
+```{r}
+# Make figure 3:
+fit <- lm(wealth ~ polity2, ds) # fit model
+p <- p + 
+  geom_line(
+    aes(polity2, fitted(fit)),
+    size = 1,
+    col = "blue"
+  )
+p # plot
+
+# Get SSR for my best guess and ols:
+mbg <- round(sum((ds$wealth - 8.5 - 0.15 * ds$polity2)^2), 2)
+ols <- round(sum(resid(fit)^2), 2)
+```
+\begin{flushright}
+$\hat{\beta}_0 =$ `r round(coef(fit)[1], 3)` and $\hat{\beta}_1 =$ `r round(coef(fit)[2], 3)`
+\end{flushright}
+
+## OLS is not the only solution....
+
+## OLS is not the only solution....
+
+
+```{r, out.height="75%"}
+knitr::include_graphics("yoda.PNG")
+```
+
+
+## OLS is not the only solution....
+
+One alternative is ***least absolute deviations*** (LAD).
+
+## OLS is not the only solution....
+
+LAD finds the $\beta$s that minimize the ***sum of the absolute values of the residuals*** (SAVR).
+$$\text{SAVR} = \sum_i|\hat{\epsilon}_i|$$
+
+
+## OLS is not the only solution....
+
+```{r}
+# Make simple objective function for LAD:
+lad <- function(x, y, b) {
+  yhat <- b[1] + b[2] * x
+  AD <- sum(abs(yhat - y))
+  return(AD)
+}
+
+# Use numerical optimizer to find LAD parameter estimates:
+opt <- optim(
+  fn = lad,
+  par = c(0, 0),
+  y = ds$wealth,
+  x = ds$polity2
+)
+
+# Make figure 4:
+p + 
+  geom_abline(
+    intercept = opt$par[1],
+    slope = opt$par[2],
+    col = "green",
+    size = 1,
+    lty = 4
+  )
+```
+
+
+## OLS is not the only solution....
+
+  - We don't often use LAD
+  - It's robust to outliers
+  - But it doesn't always have a unique solution
+  - We can't find its solution with an equation...
+  - ... which we ***can*** do with OLS.
+  
+## Taking stock
+
+## Taking stock
+
+  1. What are linear models?
+  - **Answer**: They are ***statistical models*** of the relationship between a set of explanatory variables and an outcome. They model this relationship as a ***linear additive equation***.
+  2. How do we estimate them?
+  - **Answer**: We use ***estimators***, which are rules or criteria for selecting the values of unknown model parameters. Most often, we use an estimator called ***ordinary least squares*** (OLS).
+    
+## More on ordinary least squares
+
+## More on ordinary least squares
+
+$$\text{wealth}_i = \beta_0 + \beta_1 \text{democracy}_i + \epsilon_i$$
+
+## More on ordinary least squares
+
+$$\overbrace{\text{wealth}_i}^{\color{red}{Outcome}} = \beta_0 + \beta_1 \text{democracy}_i + \epsilon_i$$
+
+
+## More on ordinary least squares
+
+$$\overbrace{\text{wealth}_i}^{\color{red}{Outcome}} = \underbrace{\beta_0}_{\color{blue}{Intercept}} + \beta_1 \text{democracy}_i + \epsilon_i$$
+
+## More on ordinary least squares
+
+$$\overbrace{\text{wealth}_i}^{\color{red}{Outcome}} = \underbrace{\beta_0}_{\color{blue}{Intercept}} + \overbrace{\beta_1}^{\color{green}{Slope}} \text{democracy}_i + \epsilon_i$$
+
+## More on ordinary least squares
+
+$$\overbrace{\text{wealth}_i}^{\color{red}{Outcome}} = \underbrace{\beta_0}_{\color{blue}{Intercept}} + \overbrace{\beta_1}^{\color{green}{Slope}} \underbrace{\text{democracy}_i}_{\color{purple}{Predictor}} + \epsilon_i$$
+
+## More on ordinary least squares
+
+$$\overbrace{\text{wealth}_i}^{\color{red}{Outcome}} = \underbrace{\beta_0}_{\color{blue}{Intercept}} + \overbrace{\beta_1}^{\color{green}{Slope}} \underbrace{\text{democracy}_i}_{\color{purple}{Predictor}} + \overbrace{\epsilon_i}^{\color{yellow}{Error}} $$
+
+## More on ordinary least squares
+
+OLS finds the values of $\hat{\beta}_0$ and $\hat{\beta}_1$ that minimize $\sum_i\hat{\epsilon}_i^2$.
+
+
+## More on ordinary least squares
+
+***Calculus to the rescue!!!***
+
+## More on ordinary least squares
+
+$$
+\begin{aligned}
+\hat{\beta}_1 & = \frac{cov(\text{democracy}_i, \text{ wealth}_i)}{var(\text{democracy}_i)} \\
+& =
+\frac{\sum_i(\text{democracy}_i - mean[\text{democracy}_i])(\text{wealth}_i - mean[\text{wealth}_i])}{\sum_i(\text{democracy}_i - mean[\text{democracy}_i])^2}
+\end{aligned}
+$$
+
+
+## More on ordinary least squares
+
+$$\hat{\beta}_0 = mean[\text{wealth}_i] - \hat{\beta}_1 mean[\text{democracy}_i].$$
+
+
+## More on ordinary least squares
+
+  - The use of $mean[\cdot]$ should alert you to the fact that...
+  - ...our solution is a way of modeling the ***conditional mean*** of **wealth** given **democracy**.
+  - $mean[\text{wealth}_i | \text{ democracy}_i]$.
+  - More generally, we express this as $\text{E}(y_i | x_{ik})$.
+  - That is, the ***expected value*** some response given the values of a set of predictors.
+  
+## More on ordinary least squares
+
+$$\text{wealth}_i = \beta_0 + \beta_1 \text{democracy}_i + \epsilon_i$$
+
+## More on ordinary least squares
+
+$$
+\begin{bmatrix}
+\text{wealth}_1 \\
+\vdots \\
+\text{wealth}_n
+\end{bmatrix} = 
+\begin{bmatrix}
+1 & \text{democracy}_1 \\
+\vdots & \vdots \\
+1 & \text{democracy}_n
+\end{bmatrix} 
+\begin{bmatrix}
+\beta_0 \\
+\beta_1
+\end{bmatrix} +
+\begin{bmatrix}
+\epsilon_1 \\
+\vdots \\
+\epsilon_n
+\end{bmatrix}
+$$
+
+
+## More on ordinary least squares
+
+$$\mathbf{y} = \mathbf{X} \boldsymbol{\beta} + \boldsymbol{\epsilon}$$
+
+
+## More on ordinary least squares
+
+$$\begin{bmatrix} \hat{\beta}_0 \\ \hat{\beta}_1 \end{bmatrix} = \hat{\boldsymbol{\beta}} = (\mathbf{X}'\mathbf{X})^{-1} \mathbf{X}'\mathbf{y}$$
+
+## More on ordinary least squares
+
+$$
+\begin{bmatrix}
+y_1 \\
+\vdots \\
+y_n
+\end{bmatrix} = 
+\begin{bmatrix}
+1 & x_{11} & \cdots & x_{1k} \\
+\vdots & \vdots & \ddots & \vdots \\
+1 & x_{1n} & \cdots & x_{nk}
+\end{bmatrix} 
+\begin{bmatrix}
+\beta_0 \\
+\beta_1 \\
+\vdots \\
+\beta_k
+\end{bmatrix} +
+\begin{bmatrix}
+\epsilon_1 \\
+\vdots \\
+\epsilon_n
+\end{bmatrix}
+$$
+
+## More on ordinary least squares
+
+$$\begin{bmatrix} \hat{\beta}_0 \\ \hat{\beta}_1 \\ \vdots \\ \hat{\beta}_k \end{bmatrix} = \hat{\boldsymbol{\beta}} = (\mathbf{X}'\mathbf{X})^{-1} \mathbf{X}'\mathbf{y}.$$
+
+## OLS assumptions
+
+What do we need to ensure OLS estimates are consistent?
+
+
+## OLS assumptions
+
+  1. The data-generating process underlying the observed data is additive and linear.
+  - If an additive linear equation is not the best way to characterize our data, our model is ***misspecified***, and OLS estimates will not be reliable.
+  2. The explanatory variables are exogenous.
+  - If if there is some unobserved confounding variable that influences both the response and the predictors, OLS estimates may be biased.
+
+## OLS assumptions
+
+  - These are fundamentally unverifiable assumptions.
+  - But, we can compare models to assess which is a ***better*** fit for the data.
+  - And, we can rely on theory to make reasonable judgments about whether ***endogeneity*** (the opposite of exogeneity) is a problem.
+  
+
+## OLS and statistical inference
+
+So, now we have a linear model of wealth, and we know how to estimate it with OLS...
+
+## OLS and statistical inference
+
+...we're done right?
+
+## OLS and statistical inference
+
+\begin{center}
+\textcolor{red}{WRONG!!!!!}
+\end{center}
+
+## OLS and statistical inference
+
+  - As ***scientists*** we're interested in testing hypotheses.
+  - So, we're usually interested, not only in estimating linear models.
+  - We're also interested in making inferences about the estimated parameters of these models.
+  
+## OLS and statistical inference
+
+\textcolor{blue}{Does democracy predict greater wealth?}
+
+## OLS and statistical inference
+
+\begin{center}
+\textcolor{red}{How do we know?}
+\end{center}
+
+## OLS and statistical inference
+
+\begin{flushright}
+\textcolor{green}{Enter standard errors!}
+\end{flushright}
+
+
+## OLS and statistical inference
+
+While we use $\hat{\beta}$s to make predictions, we rely on $var(\hat{\beta})$s to know how ***precisely*** our $\hat{\beta}$s have been estimated.
+
+## OLS and statistical inference
+
+We use the variance of the parameters to construct a number of quantities:
+
+  - Standard errors: $se(\hat{\beta}) =  \sqrt{var(\hat{\beta})}$
+  - Test statistics: $t = \frac{\hat{\beta}}{se(\hat{\beta})}$
+  - Confidence intervals: $\hat{\beta} \pm 1.96 \times se(\hat{\beta})$
+  - $p$-values: $p = \Pr(|t| \geq t^*)$
+  
+## OLS and statistical inference
+
+So how do we calculate standard errors?
+
+## OLS and statistical inference
+
+The equation for classical OLS standard errors is pretty simple.
+
+## OLS and statistical inference
+
+$$
+\mathbf{V} = 
+\begin{bmatrix}
+var(\hat{\beta}_0) & \cdots & cov(\hat{\beta}_0,\hat{\beta}_k) \\
+\vdots & \ddots & \vdots \\
+cov(\hat{\beta}_0,\hat{\beta_k}) & \cdots & var(\hat{\beta}_k)
+\end{bmatrix} =
+\hat{\sigma}^2(\mathbf{X}'\mathbf{X})^{-1} = 
+\frac{\hat{\epsilon}'\hat{\epsilon}}{n - k}(\mathbf{X}'\mathbf{X})^{-1}
+$$
+
+## OLS and statistical inference
+
+$$
+\begin{bmatrix}
+se(\hat{\beta}_0) & \cdots & se(\hat{\beta}_k)
+\end{bmatrix} = 
+\sqrt{\text{diag}[\mathbf{V}]}
+$$
+
+## OLS and statistical inference
+
+$$
+var(\hat{\beta}_0) = \frac{\sum_i \hat{\epsilon}_i}{n - k} \times \left[\frac{1}{n} + \frac{mean(\text{democracy}_i)}{n \times var(\text{democracy}_i)} \right]
+$$
+
+$$
+var(\hat{\beta}_1) = \frac{\sum_i \hat{\epsilon}_i}{n - k} \times \left[ \frac{1}{n \times var(\text{democracy}_i)} \right]
+$$
+
+## OLS and statistical inference
+
+Simple enough, ***right***?
+
+## OLS and statistical inference
+
+But we have a problem...
+
+## OLS and statistical inference
+
+This solution for standard errors makes some **strong assumptions**. Namely...
+
+## OLS and statistical inference
+
+  1. That the errors ($\epsilon_i$) of the model are ***identically*** and...
+  2. ***independently*** distributed.
+  - (iid)
+  
+## OLS and statistical inference
+
+  - These assumptions are quite heroic.
+  - The good news is that we don't have to make them.
+  - We can calculate ***robust*** standard errors to avoid the identically distributed assumption.
+  - And we can ***cluster*** our standard errors if we think some observations are depedent.
+
+## OLS and statistical inference
+
+  - We refer to violations of the first assumption as ***heteroskedasticity*** (the opposite of ***homoskedasticity***).
+  - To deal with heteroskedasticity, we calculate a heteroskedasticity consistent (HC) variance-variance covariance matrix.
+  
+## OLS and statistical inference
+
+The solution for the HC0 variance-covariance matrix (the White estimator) is:
+
+$$
+\begin{aligned}
+\Sigma & = I \cdot\boldsymbol{\hat{\epsilon}} \boldsymbol{\hat{\epsilon}}' \\
+\text{HC}_0 & = (\mathbf{X}'\mathbf{X})^{-1} \mathbf{X}' \Sigma \mathbf{X} (\mathbf{X}'\mathbf{X})^{-1}
+\end{aligned}
+$$
+
+
+## OLS and statistical inference
+
+  - This was named after Halbert White who published a paper about it in *Econometrica* in 1980.
+  - This solution is robust to all kinds of heteroskedasticity.
+  - ***Which is great!***
+  - The reason is that it allows for individual-level variation in the residuals when computing parameter variances.
+
+## OLS and statistical inference
+
+\begin{center}
+$\color{red}{\text{BUT}}$
+\end{center}
+
+## OLS and statistical inference
+
+  - HC0 errors suffer from finite sample bias.
+  - For this reason, in practice we use a degrees of freedom multiplier to get us ***HC1 errors***.
+  
+## OLS and statistical inference
+
+This solution is just:
+$$\text{HC}_1 = \frac{n}{n - k} \times \text{HC}_0$$
+
+## OLS and statistical inference
+
+\begin{flushright}
+$\color{blue}{\textit{What about clustering?}}$
+\end{flushright}
+
+## OLS and statistical inference
+
+  - The clustered version of HC0 errors is called CR0 (CR = ***cluster robust***).
+  - The solution for this is similar to that for HC0 errors.
+  - The key difference is that the $\mathbf{X}'\Sigma\mathbf{X}$ part of the equation is set up by groups or clusters in the data, rather than by individual observations.
+  - Like with HC0 errors, we need to use a degrees of freedom multiplier to account for finite sample bias.
+  - We often need to account for clustering if observations occur within groups (like a classroom) or have repeated measures over time (like a panel time-series).
+  
+## OLS and statistical inference
+
+\begin{center}
+$\color{green}{\textbf{Let's get back to polity and wealth....}}$
+\end{center}
+
+## OLS and statistical inference
+
+  - In most applied settings, we'll use either HC1 or CR1 estimators of the variance-covariance matrix.
+  - For our model of wealth, we'll use HC1 errors.
+  
+## OLS and statistical inference
+
+```{r}
+robfit <- lm_robust(wealth ~ polity2, ds, se_type = "stata")
+V <- vcov(robfit)
+se <- sqrt(diag(V))
+```
+
+
+  - For the model intercept, the standard error is $se(\hat{\beta}_0) =$ `r round(se[1], 2)`
+  - And for the estimated coefficient on democracy, $se(\hat{\beta}_1) =$ `r round(se[2], 2)`
+  
+## OLS and statistical inference
+
+  - With these standard errors, we next calculate a test statistic.
+  - This is the $t$-statistic.
+  - $t = \hat{\beta} / se(\hat{\beta})$.
+  - $t = \color{red}{\textit{ratio }}\text{of} \color{blue}{\textbf{ the parameter }} \text{to} \color{purple}{\textbf{ it's standard error}}$.
+  - Note that this means that the greater our precision in estimating $\hat{\beta}$, the larger our $t$-value will be.
+  
+## OLS and statistical inference
+
+  - The nice thing about $t$ is that is has a known theoretical distribution ***under the null hypothesis***.
+  - We judge our $t$ relative to the null to compute a $p$-value.
+  - This $p$-value tells us how surprised we should be to observe the $t$ we calculated if the true linear relationship between a predictor and and outcome ***is zero***.
+
+## OLS and statistical infernece
+
+Here's what this distribution looks like for $\hat{\beta}_1$...
+
+```{r}
+# Plot of the t-distribution:
+x <- seq(-2.5, 2.5, by = 0.01)
+t <- dt(x, df = 136 - 2)
+ggplot() +
+  aes(x, ymin = 0, ymax = t) +
+  geom_ribbon(
+    alpha = 0.4
+  ) +
+  geom_vline(
+    xintercept = cov(ds$polity2, ds$wealth) / var(ds$polity2) / se[2],
+    lty = 2,
+    size = 1
+  ) +
+  labs(
+    x = "t-stat values under the null",
+    y = "Probability",
+    title = "Distribution for n = 136 and k = 2"
+  ) +
+  annotate(
+    "text",
+    x = 1.5,
+    y = 0.35,
+    label = expression(frac(hat(beta)[1], 'se'*(hat(beta)[1])))
+  ) +
+  theme_classic()
+```
+
+## OLS and statistical inference
+
+  - It looks like our $t$-value for democracy is a pretty rare event if the true relationshp between democracy and wealth were zero.
+  - To quantify how rare it is, we need to calculate a $p$-value.
+  - For a ***two-sided*** $t$-test this is:
+  - $p = 1 - 2 \times F(|t|)$.
+  - We ***reject the null hypothesis*** if $p \leq \alpha$.
+  - The most common $\alpha$-level we select is $\alpha = 0.05$.
+  - For democracy, our $p$-value is $p =$ `r round(tidy(robfit)$p.value[2], 3)`.
+  - That's less than our $\alpha$-level, so we can reject the null hypothesis that the slope for democracy is zero.
+  
+## OLS and statistical inference
+
+We usually summarize all of this analysis with a ***regression table***.
+
+## OLS and statistical inference
+
+```{r, results='asis'}
+# Make regression table:
+texreg(
+  robfit,
+  custom.model.name = "Model of Wealth",
+  custom.coef.map = 
+    list("(Intercept)" = "Constant",
+         "polity2" = "Democracy (Polity 2)"),
+  include.ci = F,
+  caption = "OLS Estimates with Robust S.E.s",
+  caption.above = T,
+  single.row = T,
+  include.rsquared = F,
+  include.adjrs = F
+)
+```
+
+## Extensions of linear models
+
+  - We've covered a lot of ground.
+  - ***Don't worry***
+  - You'll have plenty of time get all of this straight
+  
+## Extensions of linear models
+
+But, before we wrap up I want to walk through a few more things.
+  
+## Extensions of linear models
+
+  - The first is that linear models can accommodate ***nonlinear relationships***.
+  - Take our model of wealth.
+  
+## Extensions of linear models
+
+$$\text{wealth}_i = \beta_0 + \beta_1 \text{democracy}_i + \epsilon_i$$
+
+## Extensions of linear models
+
+
+$$\text{wealth}_i = \beta_0 + \beta_1 \text{democracy}_i + \beta_2 \text{democracy}_i^2 + \epsilon_i$$
+
+## Extensions of linear models
+
+$$\text{wealth}_i = \beta_0 + \beta_1 \text{democracy}_i + \beta_2 \underbrace{\text{democracy}_i^2}_{\color{purple}{\textit{Quadratic Term}}} + \epsilon_i$$
+
+## Extensions of linear models
+
+Take our data on democracy and wealth:
+
+```{r}
+p <- ggplot(ds) +
+  aes(polity2, wealth) +
+  geom_point() +
+  labs(
+    x = "Democracy\n(Polity 2)",
+    y = "Wealth\n(natural log of per capita GDP)"
+  ) +
+  theme_classic()
+p
+```
+
+## Extensions of linear models
+
+$\color{blue}{\text{We can model this relationship as a linear function....}}$
+
+```{r}
+p <- p + geom_smooth(method = "lm", se = F)
+p
+```
+
+
+## Extensions of linear models
+
+$\color{red}{\textit{Or, we can model it as a quadratic function!}}$
+
+```{r}
+p + geom_smooth(method = "lm", se = F, formula = y ~ x + I(x^2), col = "red")
+```
+
+
+## Multiple regression models
+
+ - Another extension of the basic linear model is a ***multiple regression model***.
+ - These are models with multiple predictor variables on the right-hand side of the equation.
+ 
+## Multiple regression models
+
+$$\text{wealth}_i = \beta_0 + \beta_1\text{democracy}_i + \beta_2 \color{blue}{\text{human capital}_i} \color{black} + \epsilon_i.$$
+
+## Multiple regression models
+
+Our OLS estimate for $\beta_1$ will now reflect the ***residual linear relationship*** between democracy and wealth, ***after*** subtracting out variation in each explained as a linear function of ***human capital***.
+
+
+## Multiple regression models
+
+  - $\text{wealth}_i = \eta_0 + \eta_1 \text{human capital}_i + \upsilon_i$
+  - $\text{democracy}_i = \gamma_0 + \gamma_1 \text{human capital}_i + \varepsilon_i$
+  - $\hat{\upsilon}_i = \text{wealth}_i - \widehat{\text{wealth}}_i$ ***and*** $\hat{\varepsilon}_i = \text{democracy}_i - \widehat{\text{democracy}}_i$
+  - $\hat{\upsilon}_i  = \beta_0 + \beta_1 \hat{\varepsilon}_i + \epsilon_i$
+  
+
+## Multiple regression models
+
+Here's our ***raw*** data:
+
+```{r}
+demfit <- lm(polity2 ~ hc, ds)
+welfit <- lm(wealth ~ hc, ds)
+demres <- resid(demfit)
+welres <- resid(welfit)
+resfit <- lm(welres ~ demres)
+```
+
+```{r}
+ggplot(ds) +
+  aes(polity2, wealth) +
+  geom_point() +
+  labs(
+    x = expression("democracy"[i]),
+    y = expression("wealth"[i])
+  ) +
+  theme_classic()
+```
+
+## Multiple regression models
+
+Here's what the ***residualized*** data looks like:
+
+```{r}
+p <- ggplot() +
+  aes(demres, welres) +
+  geom_point() +
+  geom_hline(
+    yintercept = 0,
+    lty = 2
+  ) +
+  geom_vline(
+    xintercept = 0,
+    lty = 2
+  ) +
+  labs(
+    x = expression("democracy"[i] - hat("democracy")[i]),
+    y = expression("wealth"[i] - hat("wealth")[i])
+  ) +
+  theme_classic()
+p
+```
+
+## Multiple regression models
+
+And this is now our estimated slope for democracy:
+
+```{r}
+p + 
+  geom_smooth(method = "lm", se = F)
+```
+
+## Multiple regression models
+
+$$
+\begin{bmatrix}
+\text{wealth}_1 \\
+\vdots \\
+\text{wealth}_n
+\end{bmatrix} = 
+\begin{bmatrix}
+1 & \text{democracy}_1 & \text{human capital}_1 \\
+\vdots & \vdots & \vdots \\
+1 & \text{democracy}_n & \text{human capital}_n
+\end{bmatrix} 
+\begin{bmatrix}
+\beta_0 \\
+\beta_1 \\
+\beta_2
+\end{bmatrix} +
+\begin{bmatrix}
+\epsilon_1 \\
+\vdots \\
+\epsilon_n
+\end{bmatrix},
+$$
+
+## Multiple regression models
+
+$$\mathbf{y} = \mathbf{X} \boldsymbol{\beta} + \boldsymbol{\epsilon}$$
+
+## Multiple regression models
+
+$$\begin{bmatrix} \hat{\beta}_0 \\ \hat{\beta}_1 \\ \hat{\beta}_2 \end{bmatrix} = \hat{\boldsymbol{\beta}} = (\mathbf{X}'\mathbf{X})^{-1} \mathbf{X}'\mathbf{y}$$
+
+## Multiple regression models
+
+```{r, results='asis'}
+basecon <- lm_robust(wealth ~ polity2 + hc, ds, se_type = "stata")
+texreg(
+  basecon,
+  custom.model.name = "Model of Wealth",
+  custom.coef.map = 
+    list("(Intercept)" = "Constant",
+         "polity2" = "Democracy (Polity 2)",
+         "hc" = "Human Capital (HCI)"),
+  include.ci = F,
+  caption = "OLS Estimates with Robust S.E.s",
+  caption.above = T,
+  single.row = T,
+  include.rsquared = F,
+  include.adjrs = F
+)
+```
+
+
+## Goodness of fit 
+
+  - We've covered a lot of ground so far.
+  - Before we wrap up, I want to introduce one more thing...
+  - **Goodness of Fit** (GOF)
+
+## Goodness of fit
+
+  - These are metrics that tell us how ***good a fit*** a $\color{purple}{\textbf{model}}$ is for the data.
+  - Does the estimated model explain more variation in the response than we would expect it to by mere random chance?
+  - Is $y_i = \beta_0 + \beta_1 x_i + \epsilon_i$...
+  - better than $y_i = \beta_0 + \epsilon_i$?
+
+## Goodness of fit
+
+  - One of the most common metrics we use is:
+  - $R^2 = 1 - \frac{SSR}{SST}$
+  - $\text{adjusted-}R^2 = 1 - \frac{(n - 1)SSR}{(n - k)SST}$
+  - $SST = \sum_i (y_i - \bar{y})^2 = \sum_i (y_i - \hat{\beta}_0)$
+  - ***The proportion variance explained in the response***
+
+
+## Goodness of fit
+
+  - We also use something called an $F$-statistic:
+  - $F = \frac{SST - SSR}{k - 1} / \frac{SSR}{n - k}$
+  - This tells us how different our ***full model*** is from our ***reduced model***.
+  - It is proportional to the difference in the error between the two models.
+  - The ***larger this value***, the better the full model does at reducing the unexplained variation in the response than the reduced model.
+
+
+## Goodness of fit
+
+For our model of wealth:
+
+$$\text{wealth}_i = \beta_0 + \beta_1 \text{democracy}_i + \beta_2 \text{human rights}_i + \epsilon_i$$
+
+## Goodness of fit
+
+Our $F$-statistic lets us run an $F$-test:
+
+$$
+\begin{aligned}
+\text{H}_0 & : \beta_1 + \beta_2 = 0, \\
+\text{H}_A & : \beta_1 + \beta_2 \neq 0.
+\end{aligned}
+$$
+
+## Goodness of fit
+
+  - $F$-values, like $t$-values, have a known distribution under the ***null hypothesis***.
+  - This means we can compute a $p$-value for the $F$-test.
+  - As with the $t$-test, we use an $\alpha$-level of $\alpha = 0.05$ as our threshold for rejecting the null hypothesis.
+
+## Goodness of fit
+
+```{r}
+# Plot the F-distribution:
+basef <- basecon$fstatistic
+x     <- seq(0, 200, by = 0.1)
+f   <- df(x, df1 = basef[2], df2 = basef[3])
+p   <- pf(basef[1], basef[2], basef[3], lower.tail = F)
+ggplot() +
+  aes(
+    x, ymin = 0, ymax = f
+  ) +
+  geom_ribbon(alpha = 0.4) +
+  geom_vline(
+    xintercept = basef[1],
+    lty = 2, 
+    size = 1
+  ) +
+  #scale_x_log10() +
+  annotate(
+    "text",
+    x = basef[1]*.9,
+    y = .2,
+    label = "F-stat"
+  ) +
+  labs(
+    x = "F-value",
+    y = "Probability"
+  ) +
+  theme_classic()
+```
+
+\begin{flushright}
+$p =$ `r round(p, 3)`
+\end{flushright}
+
+## Goodness of fit
+
+So our model does pretty well.
+
+
+## Goodness of fit
+
+\begin{center}
+\textbf{BUT, is it the best?}
+\end{center}
+
+
+## Goodness of fit
+
+\begin{flushright}
+\textit{We can use GOF to pick the best model!}
+\end{flushright}
+
+
+## Goodness of fit
+
+  - Note that I said "best" model.
+  - I did NOT say the "right" model.
+  - There is no way to prove that a model has been specified correctly.
+  - We can only judge whether it is a better fit for the data compared to an alternative.
+  
+## Goodness of fit
+
+$$
+\begin{aligned}
+(1) \quad & \text{wealth}_i = \beta_0 + \beta_1 \text{democracy}_i + \epsilon_i, \\
+(2) \quad & \text{wealth}_i = \beta_0 + \beta_1 \text{democracy}_i + \beta_2\text{human capital}_i + \epsilon_i, \\
+(3) \quad & \text{wealth}_i = \beta_0 + \beta_1 \text{democracy}_i + \beta_2\text{democracy}_i^2 + \epsilon_i, \\
+(4) \quad & \text{wealth}_i = \beta_0 + \beta_1 \text{democracy}_i + \beta_2\text{democracy}_i^2  \\
+& \quad \quad \quad \quad \quad + \beta_3\text{human capital}_i + \epsilon_i.
+\end{aligned}
+$$
+
+
+## Goodness of fit
+
+  - Which of these is the best model of wealth?
+  - We can use our GOF metrics to provide an informed answer to this question.
+
+
+## Goodness of fit
+
+
+```{r, results='asis'}
+# Estimate the models
+my_robust <- function(...) lm_robust(..., se_type = "stata") # I'm tired of doing this every time
+base <- my_robust(wealth ~ polity2, ds)
+basecon <- my_robust(wealth ~ polity2 + hc, ds)
+quad <- my_robust(wealth ~ polity2 + I(polity2^2), ds)
+quadcon <- my_robust(wealth ~ polity2 + I(polity2^2) + hc, ds)
+
+# Regression table with all four models:
+texreg(
+  list(base, basecon, quad, quadcon),
+  include.ci = F,
+  include.rsquared = F,
+  include.rmse = F,
+  include.fstat = T,
+  custom.coef.map = list(
+    "(Intercept)" = "Contant",
+    "polity2" = "Democracy (Polity 2)",
+    "I(polity2^2)" = "Democracy$^2$",
+    "hc" = "Human Capital (HCI)"
+  ),
+  caption = "OLS Estimates for Different Models of Wealth",
+  caption.above = T
+) %>% cat()
+```
+
+## Goodness of fit
+
+\begin{table}
+\caption{Adjusted-$R^2$ for Different Models of Wealth}
+\begin{center}
+\begin{tabular}{l c c c c}
+\hline
+ & Model 1 & Model 2 & Model 3 & Model 4 \\
+\hline
+Adj. R$^2$           & $0.04$       & $0.67$       & $0.41$       & $\textbf{0.74}$       \\
+Num. obs.            & $136$        & $136$        & $136$        & $136$        \\
+\hline
+\end{tabular}
+\label{table:coefficients}
+\end{center}
+\end{table}
+
+
+## Goodness of fit
+
+\begin{table}
+\caption{Difference in Sum of Sq.}
+\label{}
+\begin{center}
+\begin{tabular}{l c c c c}
+\hline
+        & Model 1 & Model 2 & Model 3 & Model 4\\
+\hline
+Model 1 & $\cdot$  & 124.83* & 74.79*  & $\textbf{140.05*}$ \\
+Model 2 & $\cdot$  & $\cdot$ & -50.04  & $\textbf{15.22*}$  \\
+Model 3 & $\cdot$  & $\cdot$ & $\cdot$ & $\textbf{65.26*}$  \\
+Model 4 & $\cdot$  & $\cdot$ & $\cdot$ & $\cdot$ \\
+\hline
+\end{tabular}
+\end{center}
+\end{table}
+
+
+## Goodness of fit
+
+One the basis of these GOF metrics, it looks like the ***best*** fitting model of wealth models it as a quadratic function of polity and a linear function of human capital.
+
+
+## Wrapping up
+
+\begin{center}
+So, in summary...
+\end{center}
+
+## Wrapping up
+
+  - We've answered a number of questions:
+  1. What are linear models?
+  - They are ***statistical models*** of the relationship between a set of ***explanatory variables*** an an ***outcome variable***. 
+  
+## Wrapping up
+
+  2. How do we estimate them? 
+  - We use ***estimators*** to select appropriate values for the unknown parameters of a linear model.
+  - Specifically, we most often use a method called ***ordinary least squares*** (OLS).
+  
+## Wrapping up
+  
+  3. How do we make inferences with them?
+  - We can perform statistical inference with OLS estimates by calculating the variance of our model parameters.
+  - These capture the ***precision*** with which OLS has selected parameter values.
+  - With these we calculate standard errors, $t$-values, and $p$-values.
+  - We can also compute confidence intervals...but we'll save these for another time.
+
+## Wrapping up
+  
+  4. How do we extend them?
+  - Linear models can accommodate more complex relationships in data than linear relationships.
+  - As long as the relationship can be expressed in additive terms with respect to model parameters, we can specify the model as a linear regression and estimate it with OLS.
+  
+## Wrapping up
+
+  5. How do we know our models are good?
+  - To judge the goodness of our models, we use ***goodness of fit*** metrics.
+  - These cannot prove whether our models are correct.
+  - But they can help us make an informed decision about whether a model is better than some alternative(s).
+  - We typically use the adjusted-$R^2$ and the $F$-value of a regression model to make this judgment.
+  
+## Wrapping up
+
+***Now for some exercises!***
