@@ -53,7 +53,7 @@ ds <- inner_join(
 
 ## Instructions
 
-This problem set consists of a few exercises to help familiarize you with linear regression and how to perform regression analysis with R. When you've finished, knit the document and email your responses to me at `milesdw2@illinois.edu`. 
+This problem set consists of a few exercises to help familiarize you with linear regression and how to perform regression analysis with R. When you've finished, knit the document and upload to **Moodle**. 
 
 This problem set consists of two sections. For the first, you'll answer some open-ended questions about linear regression. These will test your knowledge on some of the basics of linear models and OLS. No math will be required for this section; it will only be a test of your conceptual understanding.
 
